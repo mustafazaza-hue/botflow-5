@@ -1,6 +1,8 @@
 import './globals.css'
 import { config } from '@fortawesome/fontawesome-svg-core'
 import '@fortawesome/fontawesome-svg-core/styles.css'
+import { LanguageProvider } from '@/context/LanguageContext';
+
 
 config.autoAddCss = false
 
@@ -20,7 +22,10 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
         />
       </head>
-      <body className="bg-white">{children}</body>
-    </html>
+      <body>
+        <LanguageProvider>
+          {children}
+        </LanguageProvider>
+      </body>    </html>
   )
 }

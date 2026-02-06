@@ -5,227 +5,180 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faGlobe, faBell, faQuestionCircle, faDownload,
   faFilePdf, faMessage, faChartLine, faClock,
-  faTrophy, faRobot, faEllipsisVertical
+  faTrophy, faRobot, faEllipsisVertical, faSpinner,
+  faExclamationTriangle
 } from '@fortawesome/free-solid-svg-icons'
 import { faBell as faBellRegular } from '@fortawesome/free-regular-svg-icons'
-import { faFacebook, faInstagram, faWhatsapp } from '@fortawesome/free-brands-svg-icons'
+import { faFacebook, faInstagram } from '@fortawesome/free-brands-svg-icons'
 import { useEffect, useState } from 'react'
 import dynamic from 'next/dynamic'
 import Sidebar from '@/components/Sidebar'
+import LoadingSpinner from '@/components/LoadingSpinner'
+import { analyticsApi, formatChartData, formatMetrics, formatTopBots, formatTopPages } from '@/api/analytics'
+import { authApi } from '@/api/auth'
+import { showAlert } from '@/utils/sweetAlert'
 
-// Dynamic imports for charts to avoid SSR issues
+// Dynamic imports for charts
 const Plot = dynamic(() => import('react-plotly.js'), { ssr: false })
 
-export default function AnalyticsPage() {
-  const [plotlyLoaded, setPlotlyLoaded] = useState(false)
-
-  useEffect(() => {
-    setPlotlyLoaded(true)
-  }, [])
-
-  const metrics = [
-    {
-      id: 'messages',
-      value: '24,567',
-      label: 'Total Messages',
-      change: '+12.5%',
-      changeColor: 'text-green-600',
-      bgColor: 'from-blue-500 to-blue-600',
-      icon: faMessage,
-      iconColor: 'text-white'
-    },
-    {
-      id: 'engagement',
-      value: '78.4%',
-      label: 'Engagement Rate',
-      change: '+8.3%',
-      changeColor: 'text-green-600',
-      bgColor: 'from-purple-500 to-purple-600',
-      icon: faChartLine,
-      iconColor: 'text-white'
-    },
-    {
-      id: 'response',
-      value: '2.3min',
-      label: 'Avg Response Time',
-      change: '-15.2%',
-      changeColor: 'text-green-600',
-      bgColor: 'from-pink-500 to-pink-600',
-      icon: faClock,
-      iconColor: 'text-white'
-    },
-    {
-      id: 'conversion',
-      value: '34.2%',
-      label: 'Conversion Rate',
-      change: '+22.1%',
-      changeColor: 'text-green-600',
-      bgColor: 'from-green-500 to-green-600',
-      icon: faTrophy,
-      iconColor: 'text-white'
-    }
-  ]
-
-  const topBots = [
-    {
-      id: 'bot-1',
-      name: 'Product Inquiry Bot',
-      conversations: '8,234',
-      conversion: '42.3%',
-      gradient: 'from-[#6366F1] to-[#8B5CF6]'
-    },
-    {
-      id: 'bot-2',
-      name: 'Order Tracking Bot',
-      conversations: '6,891',
-      conversion: '38.7%',
-      gradient: 'from-[#8B5CF6] to-[#EC4899]'
-    },
-    {
-      id: 'bot-3',
-      name: 'FAQ Support Bot',
-      conversations: '5,432',
-      conversion: '35.1%',
-      gradient: 'from-[#EC4899] to-[#6366F1]'
-    },
-    {
-      id: 'bot-4',
-      name: 'Lead Qualifier Bot',
-      conversations: '4,123',
-      conversion: '31.8%',
-      gradient: 'from-blue-500 to-blue-600'
-    }
-  ]
-
-  const topPages = [
-    {
-      id: 'page-1',
-      name: 'TechStore Official',
-      messages: '12,456',
-      engagement: '82.3%',
-      platform: 'facebook',
-      bgColor: 'bg-blue-500'
-    },
-    {
-      id: 'page-2',
-      name: 'StyleHub Boutique',
-      messages: '9,234',
-      engagement: '76.8%',
-      platform: 'instagram',
-      bgColor: 'bg-gradient-to-br from-purple-500 to-pink-500'
-    },
-    {
-      id: 'page-3',
-      name: 'RealtyPro Agency',
-      messages: '7,891',
-      engagement: '71.2%',
-      platform: 'facebook',
-      bgColor: 'bg-blue-500'
-    },
-    {
-      id: 'page-4',
-      name: 'FitLife Wellness',
-      messages: '6,543',
-      engagement: '68.5%',
-      platform: 'instagram',
-      bgColor: 'bg-gradient-to-br from-purple-500 to-pink-500'
-    }
-  ]
-
-  // Chart data
-  const messagesData = [{
-    type: 'scatter',
-    mode: 'lines',
-    x: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    y: [3200, 3800, 4100, 3900, 4500, 3700, 4200],
-    line: { color: '#6366F1', width: 3 },
-    fill: 'tozeroy',
-    fillcolor: 'rgba(99, 102, 241, 0.1)'
-  }]
-
-  const messagesLayout = {
+// تنسيقات الرسوم البيانية
+const chartLayouts = {
+  messages: {
     margin: { t: 20, r: 20, b: 40, l: 50 },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff',
-    xaxis: { gridcolor: '#f3f4f6' },
-    yaxis: { gridcolor: '#f3f4f6' },
+    xaxis: { gridcolor: '#f3f4f6', title: 'Date' },
+    yaxis: { gridcolor: '#f3f4f6', title: 'Messages' },
     showlegend: false
-  }
-
-  const engagementData = [{
-    type: 'pie',
-    labels: ['Facebook', 'Instagram', 'Messenger', 'WhatsApp'],
-    values: [45, 30, 15, 10],
-    marker: { colors: ['#1877F2', '#E4405F', '#0084FF', '#25D366'] },
-    hole: 0.4
-  }]
-
-  const engagementLayout = {
+  },
+  engagement: {
     margin: { t: 20, r: 20, b: 20, l: 20 },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff',
     showlegend: true,
     legend: { orientation: 'h', y: -0.1 }
-  }
-
-  const responseData = [{
-    type: 'bar',
-    x: ['<1min', '1-5min', '5-15min', '15-30min', '>30min'],
-    y: [45, 30, 15, 7, 3],
-    marker: { color: '#EC4899' }
-  }]
-
-  const responseLayout = {
+  },
+  response: {
     margin: { t: 20, r: 20, b: 40, l: 40 },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff',
-    xaxis: { gridcolor: '#f3f4f6' },
-    yaxis: { gridcolor: '#f3f4f6', title: '%' },
+    xaxis: { gridcolor: '#f3f4f6', title: 'Response Time' },
+    yaxis: { gridcolor: '#f3f4f6', title: 'Percentage (%)' },
     showlegend: false
-  }
-
-  const conversionData = [{
-    type: 'funnel',
-    y: ['Visitors', 'Engaged', 'Qualified', 'Converted'],
-    x: [10000, 7840, 5230, 3420],
-    marker: { color: ['#6366F1', '#8B5CF6', '#A855F7', '#EC4899'] }
-  }]
-
-  const conversionLayout = {
+  },
+  conversion: {
     margin: { t: 20, r: 20, b: 20, l: 120 },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff',
-    showlegend: false
-  }
-
-  const peakHoursData = [{
-    type: 'heatmap',
-    z: [[20, 30, 45, 60, 75, 85, 90, 95, 88, 82, 78, 70, 65, 72, 80, 85, 82, 75, 65, 50, 40, 35, 25, 20]],
-    x: ['00:00', '01:00', '02:00', '03:00', '04:00', '05:00', '06:00', '07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'],
-    y: ['Activity'],
-    colorscale: [[0, '#F3F4F6'], [0.5, '#8B5CF6'], [1, '#6366F1']],
-    showscale: true
-  }]
-
-  const peakHoursLayout = {
+    showlegend: false,
+    yaxis: { title: 'Stage' },
+    xaxis: { title: 'Count' }
+  },
+  peakHours: {
     margin: { t: 20, r: 20, b: 60, l: 80 },
     plot_bgcolor: '#ffffff',
     paper_bgcolor: '#ffffff',
-    yaxis: { showticklabels: false }
+    yaxis: { showticklabels: false },
+    xaxis: { title: 'Hour of Day' }
+  }
+};
+
+export default function AnalyticsPage() {
+  const [plotlyLoaded, setPlotlyLoaded] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  
+  // البيانات
+  const [metrics, setMetrics] = useState([])
+  const [topBots, setTopBots] = useState([])
+  const [topPages, setTopPages] = useState([])
+  const [charts, setCharts] = useState({
+    messages: { data: [], isEmpty: true },
+    engagement: { data: [], isEmpty: true },
+    response: { data: [], isEmpty: true },
+    conversion: { data: [], isEmpty: true },
+    peakHours: { data: [], isEmpty: true }
+  })
+  
+  // الفلترات
+  const [filterPeriod, setFilterPeriod] = useState('Last7Days')
+
+  useEffect(() => {
+    setPlotlyLoaded(true)
+    
+    if (!authApi.isAuthenticated()) {
+      showAlert.error("Authentication required", "Please login to access analytics")
+      return
+    }
+    
+    loadAnalyticsData()
+  }, [])
+
+  // تحميل البيانات
+  const loadAnalyticsData = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const allData = await analyticsApi.getAllAnalyticsData({ period: filterPeriod })
+      
+      // تحديث البيانات
+      setMetrics(formatMetrics(allData.metrics) || [])
+      setTopBots(formatTopBots(allData.topBots) || [])
+      setTopPages(formatTopPages(allData.topPages) || [])
+      
+      // تحديث الرسوم البيانية
+      setCharts({
+        messages: formatChartData.messages(allData.messagesChart),
+        engagement: formatChartData.engagement(allData.engagementChart),
+        response: formatChartData.responseTime(allData.responseTimeChart),
+        conversion: formatChartData.conversion(allData.conversionChart),
+        peakHours: formatChartData.peakHours(allData.timeSeries)
+      })
+      
+    } catch (error) {
+      console.error("Error loading analytics data:", error)
+      setError("Failed to load analytics data. The API may be experiencing issues.")
+      
+      // تعيين كل شيء فارغ
+      setMetrics([])
+      setTopBots([])
+      setTopPages([])
+      setCharts({
+        messages: { data: [], isEmpty: true },
+        engagement: { data: [], isEmpty: true },
+        response: { data: [], isEmpty: true },
+        conversion: { data: [], isEmpty: true },
+        peakHours: { data: [], isEmpty: true }
+      })
+      
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // تغيير الفلتر
+  const handleFilterChange = (value) => {
+    setFilterPeriod(value)
+    setTimeout(() => loadAnalyticsData(), 300)
+  }
+
+  // معالجة التصدير
+  const handleExport = async (format) => {
+    try {
+      await analyticsApi.exportData({
+        period: filterPeriod,
+        format: format
+      })
+    } catch (error) {
+      console.error("Export error:", error)
+    }
+  }
+
+  // عرض رسوم بيانية فارغة
+  const EmptyChart = ({ message }) => (
+    <div className="flex flex-col items-center justify-center h-full p-8">
+      <FontAwesomeIcon icon={faExclamationTriangle} className="text-4xl text-gray-400 mb-4" />
+      <p className="text-gray-500 text-center">{message}</p>
+    </div>
+  )
+
+  if (loading) {
+    return <LoadingSpinner message="Loading analytics data..." />
   }
 
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
-      {/* Sidebar Component */}
       <Sidebar activeItem="analytics" theme="dark" />
 
-      {/* Main Content */}
       <div className="flex-1 flex flex-col overflow-hidden ml-64">
-        {/* Header */}
         <header className="bg-white border-b border-gray-200 px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <h1 className="text-2xl font-bold text-[#0F172A]">Analytics & Reports</h1>
+              {loading && (
+                <FontAwesomeIcon icon={faSpinner} className="text-[#6366F1] animate-spin" />
+              )}
             </div>
             <div className="flex items-center space-x-4">
               <button className="text-gray-600 hover:text-[#6366F1] px-3 py-2 rounded-lg font-medium transition">
@@ -241,57 +194,81 @@ export default function AnalyticsPage() {
           </div>
         </header>
 
-        {/* Main Content */}
         <main className="flex-1 overflow-y-auto p-8">
-          {/* Controls Section */}
+          {error && (
+            <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+              <div className="flex items-center">
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-yellow-600 mr-2" />
+                <div>
+                  <p className="text-yellow-800 font-medium">{error}</p>
+                  <p className="text-yellow-600 text-sm mt-1">
+                    Some data may not be available due to API limitations.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="mb-8">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center space-x-3">
-                <select className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-[#6366F1]">
-                  <option>Last 7 Days</option>
-                  <option>Last 30 Days</option>
-                  <option>Last 90 Days</option>
-                  <option>This Month</option>
-                  <option>Last Month</option>
-                  <option>Custom Range</option>
-                </select>
-                <select className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-[#6366F1]">
-                  <option>All Pages</option>
-                  <option>Facebook - TechStore</option>
-                  <option>Instagram - StyleHub</option>
-                  <option>Facebook - RealtyPro</option>
+                <select 
+                  className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                  value={filterPeriod}
+                  onChange={(e) => handleFilterChange(e.target.value)}
+                >
+                  <option value="Last7Days">Last 7 Days</option>
+                  <option value="Last30Days">Last 30 Days</option>
+                  <option value="Last90Days">Last 90 Days</option>
+                  <option value="ThisMonth">This Month</option>
+                  <option value="LastMonth">Last Month</option>
                 </select>
               </div>
               <div className="flex items-center space-x-3">
-                <button className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition">
+                <button 
+                  className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-medium hover:bg-gray-50 transition"
+                  onClick={() => handleExport('csv')}
+                  disabled={loading}
+                >
                   <FontAwesomeIcon icon={faDownload} className="mr-2" />Export CSV
                 </button>
-                <button className="px-4 py-2 bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] text-white rounded-lg font-semibold hover:shadow-lg transition">
+                <button 
+                  className="px-4 py-2 bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] text-white rounded-lg font-semibold hover:shadow-lg transition"
+                  onClick={() => handleExport('pdf')}
+                  disabled={loading}
+                >
                   <FontAwesomeIcon icon={faFilePdf} className="mr-2" />Export PDF
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Metrics Section */}
+          {/* المقاييس */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {metrics.map((metric) => (
-              <div key={metric.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <div className="flex items-center justify-between mb-4">
-                  <div className={`w-12 h-12 bg-gradient-to-br ${metric.bgColor} rounded-lg flex items-center justify-center`}>
-                    <FontAwesomeIcon icon={metric.icon} className={`${metric.iconColor} text-xl`} />
+            {metrics.length > 0 ? (
+              metrics.map((metric) => (
+                <div key={metric.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className={`w-12 h-12 bg-gradient-to-br ${metric.bgColor} rounded-lg flex items-center justify-center`}>
+                      <FontAwesomeIcon icon={metric.icon} className="text-white text-xl" />
+                    </div>
+                    <span className={`${metric.changeColor} text-sm font-semibold px-2 py-1 rounded`}>
+                      {metric.change}
+                    </span>
                   </div>
-                  <span className="text-green-600 text-sm font-semibold bg-green-50 px-2 py-1 rounded">
-                    {metric.change}
-                  </span>
+                  <div className="text-3xl font-bold text-[#0F172A] mb-1">{metric.value}</div>
+                  <div className="text-gray-600 text-sm font-medium">{metric.label}</div>
                 </div>
-                <div className="text-3xl font-bold text-[#0F172A] mb-1">{metric.value}</div>
-                <div className="text-gray-600 text-sm font-medium">{metric.label}</div>
+              ))
+            ) : (
+              <div className="col-span-4 text-center py-8 text-gray-500">
+                <FontAwesomeIcon icon={faExclamationTriangle} className="text-2xl mb-2" />
+                <p>No metrics data available</p>
               </div>
-            ))}
+            )}
           </div>
 
-          {/* Charts Section */}
+          {/* الرسوم البيانية */}
           <div className="grid lg:grid-cols-2 gap-6 mb-6">
             {/* Messages Chart */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -304,13 +281,15 @@ export default function AnalyticsPage() {
                 </select>
               </div>
               <div style={{ height: '300px' }}>
-                {plotlyLoaded && (
+                {plotlyLoaded && !charts.messages.isEmpty ? (
                   <Plot
-                    data={messagesData}
-                    layout={messagesLayout}
+                    data={charts.messages.data}
+                    layout={chartLayouts.messages}
                     style={{ width: '100%', height: '100%' }}
                     config={{ responsive: true, displayModeBar: false, displaylogo: false }}
                   />
+                ) : (
+                  <EmptyChart message="No messages data available" />
                 )}
               </div>
             </div>
@@ -324,13 +303,15 @@ export default function AnalyticsPage() {
                 </button>
               </div>
               <div style={{ height: '300px' }}>
-                {plotlyLoaded && (
+                {plotlyLoaded && !charts.engagement.isEmpty ? (
                   <Plot
-                    data={engagementData}
-                    layout={engagementLayout}
+                    data={charts.engagement.data}
+                    layout={chartLayouts.engagement}
                     style={{ width: '100%', height: '100%' }}
                     config={{ responsive: true, displayModeBar: false, displaylogo: false }}
                   />
+                ) : (
+                  <EmptyChart message="No engagement data available" />
                 )}
               </div>
             </div>
@@ -342,13 +323,15 @@ export default function AnalyticsPage() {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <h3 className="text-lg font-bold text-[#0F172A] mb-6">Response Time Distribution</h3>
               <div style={{ height: '280px' }}>
-                {plotlyLoaded && (
+                {plotlyLoaded && !charts.response.isEmpty ? (
                   <Plot
-                    data={responseData}
-                    layout={responseLayout}
+                    data={charts.response.data}
+                    layout={chartLayouts.response}
                     style={{ width: '100%', height: '100%' }}
                     config={{ responsive: true, displayModeBar: false, displaylogo: false }}
                   />
+                ) : (
+                  <EmptyChart message="No response time data available" />
                 )}
               </div>
             </div>
@@ -360,13 +343,15 @@ export default function AnalyticsPage() {
                 <span className="text-sm text-gray-600">Last 30 Days</span>
               </div>
               <div style={{ height: '280px' }}>
-                {plotlyLoaded && (
+                {plotlyLoaded && !charts.conversion.isEmpty ? (
                   <Plot
-                    data={conversionData}
-                    layout={conversionLayout}
+                    data={charts.conversion.data}
+                    layout={chartLayouts.conversion}
                     style={{ width: '100%', height: '100%' }}
                     config={{ responsive: true, displayModeBar: false, displaylogo: false }}
                   />
+                ) : (
+                  <EmptyChart message="No conversion data available" />
                 )}
               </div>
             </div>
@@ -378,23 +363,30 @@ export default function AnalyticsPage() {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <h3 className="text-lg font-bold text-[#0F172A] mb-6">Top Performing Bots</h3>
               <div className="space-y-4">
-                {topBots.map((bot) => (
-                  <div key={bot.id} className="flex items-center justify-between pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-10 h-10 bg-gradient-to-br ${bot.gradient} rounded-lg flex items-center justify-center`}>
-                        <FontAwesomeIcon icon={faRobot} className="text-white" />
+                {topBots.length > 0 ? (
+                  topBots.map((bot) => (
+                    <div key={bot.id} className="flex items-center justify-between pb-4 border-b border-gray-100 last:border-0 last:pb-0">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-10 h-10 bg-gradient-to-br ${bot.gradient} rounded-lg flex items-center justify-center`}>
+                          <FontAwesomeIcon icon={faRobot} className="text-white" />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-[#0F172A]">{bot.name}</div>
+                          <div className="text-sm text-gray-500">{bot.conversations} conversations</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-semibold text-[#0F172A]">{bot.name}</div>
-                        <div className="text-sm text-gray-500">{bot.conversations} conversations</div>
+                      <div className="text-right">
+                        <div className="font-bold text-green-600">{bot.conversion}</div>
+                        <div className="text-xs text-gray-500">Conversion</div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-bold text-green-600">{bot.conversion}</div>
-                      <div className="text-xs text-gray-500">Conversion</div>
-                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <FontAwesomeIcon icon={faRobot} className="text-2xl mb-2" />
+                    <p>No bot data available</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
@@ -402,26 +394,33 @@ export default function AnalyticsPage() {
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <h3 className="text-lg font-bold text-[#0F172A] mb-6">Top Performing Pages</h3>
               <div className="space-y-4">
-                {topPages.map((page) => (
-                  <div key={page.id} className="flex items-center justify-between pb-4 border-b border-gray-100 last:border-0 last:pb-0">
-                    <div className="flex items-center space-x-3">
-                      <div className={`w-10 h-10 ${page.bgColor} rounded-lg flex items-center justify-center`}>
-                        <FontAwesomeIcon 
-                          icon={page.platform === 'facebook' ? faFacebook : faInstagram} 
-                          className="text-white" 
-                        />
+                {topPages.length > 0 ? (
+                  topPages.map((page) => (
+                    <div key={page.id} className="flex items-center justify-between pb-4 border-b border-gray-100 last:border-0 last:pb-0">
+                      <div className="flex items-center space-x-3">
+                        <div className={`w-10 h-10 ${page.bgColor} rounded-lg flex items-center justify-center`}>
+                          <FontAwesomeIcon 
+                            icon={page.platform === 'facebook' ? faFacebook : faInstagram} 
+                            className="text-white" 
+                          />
+                        </div>
+                        <div>
+                          <div className="font-semibold text-[#0F172A]">{page.name}</div>
+                          <div className="text-sm text-gray-500">{page.messages} messages</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-semibold text-[#0F172A]">{page.name}</div>
-                        <div className="text-sm text-gray-500">{page.messages} messages</div>
+                      <div className="text-right">
+                        <div className="font-bold text-[#6366F1]">{page.engagement}</div>
+                        <div className="text-xs text-gray-500">Engagement</div>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-bold text-[#6366F1]">{page.engagement}</div>
-                      <div className="text-xs text-gray-500">Engagement</div>
-                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <FontAwesomeIcon icon={faFacebook} className="text-2xl mb-2" />
+                    <p>No page data available</p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </div>
@@ -433,13 +432,15 @@ export default function AnalyticsPage() {
               <span className="text-sm text-gray-600">Last 7 Days</span>
             </div>
             <div style={{ height: '300px' }}>
-              {plotlyLoaded && (
+              {plotlyLoaded && !charts.peakHours.isEmpty ? (
                 <Plot
-                  data={peakHoursData}
-                  layout={peakHoursLayout}
+                  data={charts.peakHours.data}
+                  layout={chartLayouts.peakHours}
                   style={{ width: '100%', height: '100%' }}
                   config={{ responsive: true, displayModeBar: false, displaylogo: false }}
                 />
+              ) : (
+                <EmptyChart message="No activity data available" />
               )}
             </div>
           </div>

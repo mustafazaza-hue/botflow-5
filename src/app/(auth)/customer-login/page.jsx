@@ -1,21 +1,214 @@
+// app/login/page.jsx
 'use client'
 
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faRobot, faEnvelope, faLock,
   faEye, faEyeSlash, faArrowRight,
-  faGlobe, faShieldHalved
+  faGlobe, faShieldHalved, faSpinner
 } from '@fortawesome/free-solid-svg-icons'
 import { faEnvelope as faEnvelopeRegular, faEye as faEyeRegular } from '@fortawesome/free-regular-svg-icons'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
+import { useRouter } from 'next/navigation'
+
+// استخدم المسار الصحيح
+import { authApi } from '../../../api/auth'
+import { showAlert } from '../../../utils/sweetAlert'
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [selectedLanguage, setSelectedLanguage] = useState('english')
+  const [isLoading, setIsLoading] = useState(false)
+  const [rememberMe, setRememberMe] = useState(false)
+  const router = useRouter()
+
+  useEffect(() => {
+    console.log('🔍 LoginPage mounted - Checking existing authentication...')
+    
+    // التحقق من التوكن الموجود
+    const tokenCheck = authApi.checkToken()
+    console.log('🔍 Existing token check:', tokenCheck)
+    
+    // إذا كان هناك توكن صالح، انتقل مباشرة للdashboard
+    if (tokenCheck.isValid) {
+      console.log('✅ Valid token found, redirecting to dashboard...')
+      router.push('/dashboard')
+    } else {
+      console.log('❌ No valid token found, staying on login page')
+    }
+  }, [router])
 
   const togglePassword = () => {
     setShowPassword(!showPassword)
   }
+
+  const validationSchema = Yup.object({
+    email: Yup.string()
+      .email('Invalid email address')
+      .required('Email is required'),
+    password: Yup.string()
+      .min(6, 'Password must be at least 6 characters')
+      .required('Password is required'),
+    rememberMe: Yup.boolean()
+  })
+
+  const formik = useFormik({
+    initialValues: {
+      email: '',
+      password: '',
+      rememberMe: false
+    },
+    validationSchema,
+    onSubmit: async (values) => {
+      setIsLoading(true)
+      showAlert.loading('Signing in...')
+      
+      try {
+        const loginData = {
+          email: values.email,
+          password: values.password,
+          rememberMe: values.rememberMe
+        }
+
+        console.log('📤 Sending login data:', { ...loginData, password: '***' })
+        
+        // 🔴 تحقق من localStorage قبل تسجيل الدخول
+        console.log('🔍 LocalStorage BEFORE login:', {
+          token: localStorage.getItem('auth_token'),
+          hasToken: !!localStorage.getItem('auth_token'),
+          allKeys: Object.keys(localStorage)
+        })
+        
+        // استدعاء API تسجيل الدخول
+        const response = await authApi.login(loginData)
+        
+        showAlert.close()
+        
+        // 🔴 تحليل الاستجابة
+        console.log('🔍 Login response received:', {
+          success: response?.success,
+          message: response?.message,
+          hasTokenInResponse: !!response?.token,
+          hasAccessTokenInResponse: !!response?.accessToken,
+          responseKeys: Object.keys(response || {})
+        })
+        
+        // 🔴 تحقق من التوكن في localStorage بعد تسجيل الدخول
+        const tokenAfterLogin = localStorage.getItem('auth_token')
+        console.log('🔍 LocalStorage AFTER authApi.login:', {
+          token: tokenAfterLogin,
+          hasToken: !!tokenAfterLogin,
+          tokenLength: tokenAfterLogin?.length,
+          fullLocalStorage: Object.keys(localStorage).map(key => ({
+            key,
+            value: key.includes('token') ? 
+              localStorage.getItem(key)?.substring(0, 30) + '...' : 
+              localStorage.getItem(key)
+          }))
+        })
+        
+        if (!tokenAfterLogin || tokenAfterLogin.length < 10) {
+          console.error('❌ CRITICAL: Token not saved properly!')
+          
+          // محاولة يدوية لحفظ التوكن
+          console.log('🔍 Attempting manual token extraction...')
+          
+          // دالة للبحث العميق عن التوكن
+          const findTokenInObject = (obj, path = '') => {
+            if (!obj || typeof obj !== 'object') return null
+            
+            for (const key in obj) {
+              const value = obj[key]
+              const currentPath = path ? `${path}.${key}` : key
+              
+              // إذا كان المفتاح يحتوي على "token" وكانت القيمة نص
+              if (key.toLowerCase().includes('token') && 
+                  typeof value === 'string' && 
+                  value.length > 10) {
+                console.log(`✅ Found token at ${currentPath}: ${value.substring(0, 30)}...`)
+                return value
+              }
+              
+              // إذا كانت القيمة كائن، ابحث داخله
+              if (typeof value === 'object' && value !== null) {
+                const found = findTokenInObject(value, currentPath)
+                if (found) return found
+              }
+            }
+            return null
+          }
+          
+          const foundToken = findTokenInObject(response)
+          
+          if (foundToken) {
+            console.log('✅ Manually saving extracted token to localStorage')
+            localStorage.setItem('auth_token', foundToken)
+            
+            // حفظ بيانات المستخدم إذا كانت موجودة
+            if (response.data || response) {
+              localStorage.setItem('user_data', JSON.stringify(response.data || response))
+            }
+          } else {
+            console.error('❌ Could not find token in response structure!')
+            console.log('📋 Full response for debugging:', response)
+          }
+        }
+        
+        // 🔴 التحقق النهائي
+        const finalTokenCheck = authApi.checkToken()
+        console.log('🔍 Final token check:', finalTokenCheck)
+        
+        if (!finalTokenCheck.isValid) {
+          throw new Error('Authentication failed: No valid token received')
+        }
+        
+        await showAlert.success(
+          'Welcome Back!', 
+          'You have successfully signed in'
+        )
+        
+        // تأخير للتأكد من تخزين البيانات
+        setTimeout(() => {
+          console.log('🔄 Redirecting to dashboard...')
+          console.log('🔍 Final verification before redirect:', authApi.checkToken())
+          router.push('/dashboard')
+        }, 1000)
+        
+      } catch (error) {
+        showAlert.close()
+        
+        console.error('❌ Login error details:', {
+          name: error?.name,
+          message: error?.message,
+          status: error?.status,
+          detail: error?.detail,
+          fullError: error
+        })
+        
+        let errorMessage = 'An error occurred during sign in'
+        let title = 'Sign In Failed'
+        
+        if (error?.status === 401) {
+          if (error?.message?.includes('verify')) {
+            title = 'Email Verification Required'
+            errorMessage = 'Please verify your email before logging in.'
+          } else {
+            errorMessage = 'Invalid email or password'
+          }
+        } else if (error?.message) {
+          errorMessage = error.message
+        } else if (error?.detail) {
+          errorMessage = error.detail
+        }
+        
+        await showAlert.error(title, errorMessage)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+  })
 
   const socialButtons = [
     {
@@ -58,9 +251,45 @@ export default function LoginPage() {
     { id: 'arabic', name: 'العربية', code: 'ar' }
   ]
 
+  // زر للتحقق اليدوي
+  const handleManualCheck = () => {
+    console.log('🔍 Manual authentication check:')
+    console.log('1. authApi.checkToken():', authApi.checkToken())
+    console.log('2. authApi.isAuthenticated():', authApi.isAuthenticated())
+    console.log('3. Full localStorage:', {
+      auth_token: localStorage.getItem('auth_token'),
+      refresh_token: localStorage.getItem('refresh_token'),
+      user_data: localStorage.getItem('user_data'),
+      allKeys: Object.keys(localStorage)
+    })
+    
+    // اختبار API مباشرة
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      console.log('🔍 Testing token with API call...')
+      fetch('http://localhost:5224/api/Dashboard/metrics', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      .then(res => console.log('API test response:', res.status, res.statusText))
+      .catch(err => console.error('API test error:', err))
+    }
+  }
+
   return (
     <div id="auth-container" className="flex flex-col items-center justify-center min-h-screen px-6 py-12 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50">
       <div className="w-full max-w-md">
+        {/* زر للتحقق اليدوي */}
+        <div className="mb-4 text-center">
+          <button
+            onClick={handleManualCheck}
+            className="text-sm text-gray-500 hover:text-[#6366F1] transition"
+          >
+            🔍 Debug Authentication
+          </button>
+        </div>
+        
         <div id="logo-section" className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-gradient-to-br from-[#6366F1] to-[#8B5CF6] rounded-2xl flex items-center justify-center mb-4 shadow-lg">
             <FontAwesomeIcon icon={faRobot} className="text-white text-3xl" />
@@ -74,7 +303,7 @@ export default function LoginPage() {
         </div>
 
         <div id="login-form" className="bg-white rounded-2xl shadow-xl p-8">
-          <form className="space-y-6">
+          <form className="space-y-6" onSubmit={formik.handleSubmit}>
             <div id="email-field">
               <label className="block text-sm font-semibold text-gray-700 mb-2" htmlFor="email">
                 Email Address
@@ -84,12 +313,24 @@ export default function LoginPage() {
                   <FontAwesomeIcon icon={faEnvelopeRegular} className="text-gray-400" />
                 </div>
                 <input
-                  className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-[#6366F1] transition"
+                  className={`w-full pl-12 pr-4 py-3 border-2 rounded-xl focus:outline-none transition ${
+                    formik.touched.email && formik.errors.email
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-gray-200 focus:border-[#6366F1]'
+                  }`}
                   id="email"
+                  name="email"
                   type="email"
                   placeholder="you@example.com"
+                  value={formik.values.email}
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  disabled={isLoading}
                 />
               </div>
+              {formik.touched.email && formik.errors.email && (
+                <p className="mt-1 text-sm text-red-600">{formik.errors.email}</p>
+              )}
             </div>
 
             <div id="password-field">
@@ -101,15 +342,25 @@ export default function LoginPage() {
                   <FontAwesomeIcon icon={faLock} className="text-gray-400" />
                 </div>
                 <input
-                  className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-xl focus:outline-none focus:border-[#6366F1] transition"
+                  className={`w-full pl-12 pr-12 py-3 border-2 rounded-xl focus:outline-none transition ${
+                    formik.touched.password && formik.errors.password
+                      ? 'border-red-500 focus:border-red-500'
+                      : 'border-gray-200 focus:border-[#6366F1]'
+                  }`}
                   id="password"
+                  name="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="Enter your password"
+                  value={formik.values.password}
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  disabled={isLoading}
                 />
                 <button
                   type="button"
                   className="absolute inset-y-0 right-0 pr-4 flex items-center"
                   onClick={togglePassword}
+                  disabled={isLoading}
                 >
                   <FontAwesomeIcon
                     icon={showPassword ? faEyeSlash : faEyeRegular}
@@ -117,13 +368,20 @@ export default function LoginPage() {
                   />
                 </button>
               </div>
+              {formik.touched.password && formik.errors.password && (
+                <p className="mt-1 text-sm text-red-600">{formik.errors.password}</p>
+              )}
             </div>
 
             <div id="remember-forgot" className="flex items-center justify-between">
               <label className="flex items-center">
                 <input
                   type="checkbox"
+                  name="rememberMe"
                   className="w-4 h-4 text-[#6366F1] border-gray-300 rounded focus:ring-[#6366F1]"
+                  checked={formik.values.rememberMe}
+                  onChange={formik.handleChange}
+                  disabled={isLoading}
                 />
                 <span className="ml-2 text-sm text-gray-600">Remember me</span>
               </label>
@@ -137,16 +395,26 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              className="w-full bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] text-white py-3.5 rounded-xl font-semibold text-lg hover:shadow-xl transition transform hover:scale-[1.02]"
+              disabled={isLoading || !formik.isValid}
+              className="w-full bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] text-white py-3.5 rounded-xl font-semibold text-lg hover:shadow-xl transition transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center"
             >
-              Sign In
-              <FontAwesomeIcon icon={faArrowRight} className="ml-2" />
+              {isLoading ? (
+                <>
+                  <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-2" />
+                  Signing In...
+                </>
+              ) : (
+                <>
+                  Sign In
+                  <FontAwesomeIcon icon={faArrowRight} className="ml-2" />
+                </>
+              )}
             </button>
 
             <div id="signup-link" className="text-center">
               <span className="text-gray-600 text-sm">Don&apos;t have an account?</span>
               <a
-                href="#"
+                href="/signup"
                 className="text-[#6366F1] font-semibold text-sm hover:text-[#8B5CF6] transition ml-1"
               >
                 Create Account
@@ -164,7 +432,8 @@ export default function LoginPage() {
             {socialButtons.map((button) => (
               <button
                 key={button.id}
-                className={`w-full flex items-center justify-center py-3 px-4 border-2 border-gray-200 rounded-xl ${button.borderHover} hover:bg-gray-50 transition font-medium text-gray-700`}
+                className={`w-full flex items-center justify-center py-3 px-4 border-2 border-gray-200 rounded-xl ${button.borderHover} hover:bg-gray-50 transition font-medium text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed`}
+                disabled={isLoading}
               >
                 {button.icon}
                 Continue with {button.name}
@@ -178,7 +447,8 @@ export default function LoginPage() {
             <button
               key={language.id}
               onClick={() => setSelectedLanguage(language.id)}
-              className={`flex items-center px-4 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition border-2 ${
+              disabled={isLoading}
+              className={`flex items-center px-4 py-2 bg-white rounded-lg shadow-sm hover:shadow-md transition border-2 disabled:opacity-50 disabled:cursor-not-allowed ${
                 selectedLanguage === language.id
                   ? 'border-[#6366F1]'
                   : 'border-gray-200 hover:border-[#6366F1]'

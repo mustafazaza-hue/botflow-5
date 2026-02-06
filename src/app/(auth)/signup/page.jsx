@@ -4,15 +4,147 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
   faRobot, faGlobe, faBolt, faShieldHalved, faHeadset, faRocket,
   faEnvelope, faBuilding, faLock, faEye, faEyeSlash, faPhone,
-  faCheckCircle, faArrowRight
+  faCheckCircle, faArrowRight, faSpinner
 } from '@fortawesome/free-solid-svg-icons'
 import { faShopify, faWordpress, faSlack, faHubspot, faGoogle, faFacebook } from '@fortawesome/free-brands-svg-icons'
 import { useState, useEffect } from 'react'
+import { useFormik } from 'formik'
+import * as Yup from 'yup'
+import { authApi } from '@/api/auth'
+import { showAlert } from '@/utils/sweetAlert'
+import { useRouter } from 'next/navigation'
 
 export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false)
-  const [password, setPassword] = useState('')
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [passwordStrength, setPasswordStrength] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
+  const [formStep, setFormStep] = useState(1)
+  const router = useRouter()
+
+  const calculatePasswordStrength = (password) => {
+    let strength = 0
+    if (password.length >= 8) strength++
+    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++
+    if (/[0-9]/.test(password)) strength++
+    if (/[^a-zA-Z0-9]/.test(password)) strength++
+    return strength
+  }
+
+  const getStrengthColor = (strength) => {
+    const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500']
+    return strength > 0 ? colors[strength - 1] : 'bg-gray-200'
+  }
+
+  const validationSchema = Yup.object({
+    firstName: Yup.string()
+      .required('First name is required')
+      .min(2, 'First name must be at least 2 characters')
+      .max(50, 'First name must not exceed 50 characters'),
+    lastName: Yup.string()
+      .required('Last name is required')
+      .min(2, 'Last name must be at least 2 characters')
+      .max(50, 'Last name must not exceed 50 characters'),
+    email: Yup.string()
+      .email('Invalid email address')
+      .required('Email is required'),
+    userName: Yup.string()
+      .min(3, 'Username must be at least 3 characters')
+      .max(50, 'Username must not exceed 50 characters'),
+    companyName: Yup.string()
+      .min(2, 'Company name must be at least 2 characters')
+      .max(100, 'Company name must not exceed 100 characters')
+      .required('Company name is required'),
+    phoneNumber: Yup.string()
+      .matches(/^[0-9+\-\s()]*$/, 'Invalid phone number'),
+    password: Yup.string()
+      .min(8, 'Password must be at least 8 characters')
+      .matches(/[a-z]/, 'Must contain at least one lowercase letter')
+      .matches(/[A-Z]/, 'Must contain at least one uppercase letter')
+      .matches(/[0-9]/, 'Must contain at least one number')
+      .matches(/[^a-zA-Z0-9]/, 'Must contain at least one special character')
+      .required('Password is required'),
+    confirmPassword: Yup.string()
+      .oneOf([Yup.ref('password'), null], 'Passwords do not match')
+      .required('Confirm password is required'),
+    acceptTerms: Yup.boolean()
+      .oneOf([true], 'You must accept the terms and conditions')
+      .required('You must accept the terms and conditions'),
+    subscribeToNewsletter: Yup.boolean()
+  })
+
+  const formik = useFormik({
+    initialValues: {
+      firstName: '',
+      lastName: '',
+      email: '',
+      userName: '',
+      companyName: '',
+      phoneNumber: '',
+      password: '',
+      confirmPassword: '',
+      acceptTerms: false,
+      subscribeToNewsletter: false
+    },
+    validationSchema,
+    onSubmit: async (values) => {
+      setIsLoading(true)
+      showAlert.loading('Creating your account...')
+      
+      try {
+        const registerData = {
+          firstName: values.firstName,
+          lastName: values.lastName,
+          email: values.email,
+          userName: values.userName || `${values.firstName}${values.lastName}`.toLowerCase(),
+          companyName: values.companyName,
+          phoneNumber: values.phoneNumber || '',
+          password: values.password,
+          confirmPassword: values.confirmPassword,
+          acceptTerms: values.acceptTerms,
+          subscribeToNewsletter: values.subscribeToNewsletter
+        }
+
+        const response = await authApi.register(registerData)
+        
+        showAlert.close()
+        
+        if (response.requiresEmailVerification) {
+          await showAlert.success(
+            'Account Created Successfully!', 
+            'Please check your email to verify your account'
+          )
+          router.push(`/verify-email?email=${encodeURIComponent(values.email)}`)
+        } else {
+          await showAlert.success(
+            'Welcome to BotFlow!', 
+            'Your account has been created successfully'
+          )
+          router.push('/customer-login')
+        }
+      } catch (error) {
+        showAlert.close()
+        
+        let errorMessage = 'An error occurred during registration'
+        
+        if (error.status === 400 || error.status === 409) {
+          errorMessage = error.detail || error.title || 'Please check your information'
+        } else if (typeof error === 'string') {
+          errorMessage = error
+        } else if (error.message) {
+          errorMessage = error.message
+        }
+        
+        await showAlert.error('Registration Failed', errorMessage)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+  })
+
+  useEffect(() => {
+    setPasswordStrength(calculatePasswordStrength(formik.values.password))
+  }, [formik.values.password])
 
   const benefits = [
     {
@@ -90,26 +222,12 @@ export default function RegisterPage() {
     }
   ]
 
-  const calculatePasswordStrength = (password) => {
-    let strength = 0
-    if (password.length >= 8) strength++
-    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++
-    if (/[0-9]/.test(password)) strength++
-    if (/[^a-zA-Z0-9]/.test(password)) strength++
-    return strength
-  }
-
-  const getStrengthColor = (strength) => {
-    const colors = ['bg-red-500', 'bg-orange-500', 'bg-yellow-500', 'bg-green-500']
-    return strength > 0 ? colors[strength - 1] : 'bg-gray-200'
-  }
-
-  useEffect(() => {
-    setPasswordStrength(calculatePasswordStrength(password))
-  }, [password])
-
   const togglePassword = () => {
     setShowPassword(!showPassword)
+  }
+
+  const toggleConfirmPassword = () => {
+    setShowConfirmPassword(!showConfirmPassword)
   }
 
   return (
@@ -128,7 +246,7 @@ export default function RegisterPage() {
                 <FontAwesomeIcon icon={faGlobe} className="mr-2" />EN
               </button>
               <span className="text-gray-400">Already have an account?</span>
-              <a href="/login" className="text-[#6366F1] hover:text-[#8B5CF6] px-4 py-2 rounded-lg font-semibold transition">
+              <a href="/customer-login" className="text-[#6366F1] hover:text-[#8B5CF6] px-4 py-2 rounded-lg font-semibold transition">
                 Login
               </a>
             </div>
@@ -183,6 +301,7 @@ export default function RegisterPage() {
                     <button
                       key={button.id}
                       className={`w-full flex items-center justify-center space-x-3 bg-white border-2 border-gray-200 ${button.borderHover} px-6 py-3 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition`}
+                      disabled={isLoading}
                     >
                       <FontAwesomeIcon icon={button.icon} className={`text-xl ${button.iconColor}`} />
                       <span>Continue with {button.name}</span>
@@ -196,7 +315,7 @@ export default function RegisterPage() {
                   <div className="flex-1 border-t border-gray-200"></div>
                 </div>
                 
-                <form id="register-form" className="space-y-5">
+                <form id="register-form" className="space-y-5" onSubmit={formik.handleSubmit}>
                   <div className="grid md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -204,10 +323,21 @@ export default function RegisterPage() {
                       </label>
                       <input
                         type="text"
+                        name="firstName"
                         placeholder="John"
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#6366F1] focus:outline-none transition"
-                        required
+                        className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none transition ${
+                          formik.touched.firstName && formik.errors.firstName
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-gray-200 focus:border-[#6366F1]'
+                        }`}
+                        value={formik.values.firstName}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        disabled={isLoading}
                       />
+                      {formik.touched.firstName && formik.errors.firstName && (
+                        <p className="mt-1 text-sm text-red-600">{formik.errors.firstName}</p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -215,10 +345,21 @@ export default function RegisterPage() {
                       </label>
                       <input
                         type="text"
+                        name="lastName"
                         placeholder="Doe"
-                        className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#6366F1] focus:outline-none transition"
-                        required
+                        className={`w-full px-4 py-3 border-2 rounded-xl focus:outline-none transition ${
+                          formik.touched.lastName && formik.errors.lastName
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-gray-200 focus:border-[#6366F1]'
+                        }`}
+                        value={formik.values.lastName}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        disabled={isLoading}
                       />
+                      {formik.touched.lastName && formik.errors.lastName && (
+                        <p className="mt-1 text-sm text-red-600">{formik.errors.lastName}</p>
+                      )}
                     </div>
                   </div>
                   
@@ -233,11 +374,22 @@ export default function RegisterPage() {
                       />
                       <input
                         type="email"
+                        name="email"
                         placeholder="john@company.com"
-                        className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#6366F1] focus:outline-none transition"
-                        required
+                        className={`w-full pl-12 pr-4 py-3 border-2 rounded-xl focus:outline-none transition ${
+                          formik.touched.email && formik.errors.email
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-gray-200 focus:border-[#6366F1]'
+                        }`}
+                        value={formik.values.email}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        disabled={isLoading}
                       />
                     </div>
+                    {formik.touched.email && formik.errors.email && (
+                      <p className="mt-1 text-sm text-red-600">{formik.errors.email}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -251,11 +403,22 @@ export default function RegisterPage() {
                       />
                       <input
                         type="text"
+                        name="companyName"
                         placeholder="Your Company"
-                        className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#6366F1] focus:outline-none transition"
-                        required
+                        className={`w-full pl-12 pr-4 py-3 border-2 rounded-xl focus:outline-none transition ${
+                          formik.touched.companyName && formik.errors.companyName
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-gray-200 focus:border-[#6366F1]'
+                        }`}
+                        value={formik.values.companyName}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        disabled={isLoading}
                       />
                     </div>
+                    {formik.touched.companyName && formik.errors.companyName && (
+                      <p className="mt-1 text-sm text-red-600">{formik.errors.companyName}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -269,16 +432,23 @@ export default function RegisterPage() {
                       />
                       <input
                         type={showPassword ? "text" : "password"}
+                        name="password"
                         placeholder="Create a strong password"
-                        className="w-full pl-12 pr-12 py-3 border-2 border-gray-200 rounded-xl focus:border-[#6366F1] focus:outline-none transition"
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
+                        className={`w-full pl-12 pr-12 py-3 border-2 rounded-xl focus:outline-none transition ${
+                          formik.touched.password && formik.errors.password
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-gray-200 focus:border-[#6366F1]'
+                        }`}
+                        value={formik.values.password}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        disabled={isLoading}
                       />
                       <button
                         type="button"
                         className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                         onClick={togglePassword}
+                        disabled={isLoading}
                       >
                         <FontAwesomeIcon icon={showPassword ? faEyeSlash : faEye} />
                       </button>
@@ -291,9 +461,50 @@ export default function RegisterPage() {
                         />
                       ))}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      Use 8+ characters with letters, numbers & symbols
-                    </p>
+                    {formik.touched.password && formik.errors.password ? (
+                      <p className="mt-1 text-sm text-red-600">{formik.errors.password}</p>
+                    ) : (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Use 8+ characters with letters, numbers & symbols
+                      </p>
+                    )}
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Confirm Password
+                    </label>
+                    <div className="relative">
+                      <FontAwesomeIcon
+                        icon={faLock}
+                        className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400"
+                      />
+                      <input
+                        type={showConfirmPassword ? "text" : "password"}
+                        name="confirmPassword"
+                        placeholder="Confirm your password"
+                        className={`w-full pl-12 pr-12 py-3 border-2 rounded-xl focus:outline-none transition ${
+                          formik.touched.confirmPassword && formik.errors.confirmPassword
+                            ? 'border-red-500 focus:border-red-500'
+                            : 'border-gray-200 focus:border-[#6366F1]'
+                        }`}
+                        value={formik.values.confirmPassword}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        disabled={isLoading}
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        onClick={toggleConfirmPassword}
+                        disabled={isLoading}
+                      >
+                        <FontAwesomeIcon icon={showConfirmPassword ? faEyeSlash : faEye} />
+                      </button>
+                    </div>
+                    {formik.touched.confirmPassword && formik.errors.confirmPassword && (
+                      <p className="mt-1 text-sm text-red-600">{formik.errors.confirmPassword}</p>
+                    )}
                   </div>
                   
                   <div>
@@ -307,8 +518,13 @@ export default function RegisterPage() {
                       />
                       <input
                         type="tel"
+                        name="phoneNumber"
                         placeholder="+1 (555) 000-0000"
                         className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#6366F1] focus:outline-none transition"
+                        value={formik.values.phoneNumber}
+                        onChange={formik.handleChange}
+                        onBlur={formik.handleBlur}
+                        disabled={isLoading}
                       />
                     </div>
                   </div>
@@ -316,9 +532,13 @@ export default function RegisterPage() {
                   <div className="flex items-start space-x-3">
                     <input
                       type="checkbox"
+                      name="acceptTerms"
                       id="terms"
                       className="w-5 h-5 text-[#6366F1] border-2 border-gray-300 rounded focus:ring-2 focus:ring-[#6366F1] mt-0.5"
-                      required
+                      checked={formik.values.acceptTerms}
+                      onChange={formik.handleChange}
+                      onBlur={formik.handleBlur}
+                      disabled={isLoading}
                     />
                     <label htmlFor="terms" className="text-sm text-gray-600">
                       I agree to BotFlow&apos;s{' '}
@@ -331,12 +551,19 @@ export default function RegisterPage() {
                       </a>
                     </label>
                   </div>
+                  {formik.touched.acceptTerms && formik.errors.acceptTerms && (
+                    <p className="text-sm text-red-600">{formik.errors.acceptTerms}</p>
+                  )}
                   
                   <div className="flex items-start space-x-3">
                     <input
                       type="checkbox"
+                      name="subscribeToNewsletter"
                       id="newsletter"
                       className="w-5 h-5 text-[#6366F1] border-2 border-gray-300 rounded focus:ring-2 focus:ring-[#6366F1] mt-0.5"
+                      checked={formik.values.subscribeToNewsletter}
+                      onChange={formik.handleChange}
+                      disabled={isLoading}
                     />
                     <label htmlFor="newsletter" className="text-sm text-gray-600">
                       Send me product updates, tips, and exclusive offers
@@ -345,16 +572,27 @@ export default function RegisterPage() {
                   
                   <button
                     type="submit"
-                    className="w-full bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] text-white py-4 rounded-xl font-bold text-lg hover:shadow-xl transition transform hover:scale-[1.02]"
+                    disabled={isLoading || !formik.isValid}
+                    className="w-full bg-gradient-to-r from-[#6366F1] to-[#8B5CF6] text-white py-4 rounded-xl font-bold text-lg hover:shadow-xl transition transform hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center"
                   >
-                    Create Account <FontAwesomeIcon icon={faArrowRight} className="ml-2" />
+                    {isLoading ? (
+                      <>
+                        <FontAwesomeIcon icon={faSpinner} className="animate-spin mr-2" />
+                        Creating Account...
+                      </>
+                    ) : (
+                      <>
+                        Create Account
+                        <FontAwesomeIcon icon={faArrowRight} className="ml-2" />
+                      </>
+                    )}
                   </button>
                 </form>
                 
                 <div className="mt-6 text-center">
                   <p className="text-sm text-gray-600">
                     Already have an account?{' '}
-                    <a href="/login" className="text-[#6366F1] font-semibold hover:underline">
+                    <a href="/customer-login" className="text-[#6366F1] font-semibold hover:underline">
                       Sign in
                     </a>
                   </p>
@@ -389,7 +627,7 @@ export default function RegisterPage() {
               <a href="#" className="hover:text-[#6366F1] transition">Terms of Service</a>
               <a href="#" className="hover:text-[#6366F1] transition">Contact Support</a>
             </div>
-            <p className="text-sm text-gray-500">© 2026 Nexus Company. All rights reserved.</p>
+            <p className="text-sm text-gray-500"> All rights reserved.</p>
           </div>
         </div>
       </footer>
